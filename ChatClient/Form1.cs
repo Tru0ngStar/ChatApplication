@@ -25,6 +25,18 @@ namespace ChatClient
 
         private async Task Auth(PacketType type)
         {
+            if (string.IsNullOrWhiteSpace(txtUsername.Text))
+            {
+                MessageBox.Show("Vui lòng nhập tên đăng nhập!");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(txtPassword.Text))
+            {
+                MessageBox.Show("Vui lòng nhập mật khẩu!");
+                return;
+            }
+
             if (!await Connect()) return;
             var p = new Packet(type) { Sender = txtUsername.Text, Password = txtPassword.Text };
             await SendPacket(p);
@@ -170,6 +182,12 @@ namespace ChatClient
 
         private async void btnSend_Click(object sender, EventArgs e)
         {
+            if (string.IsNullOrEmpty(_currentUsername))
+            {
+                MessageBox.Show("Bạn chưa đăng nhập!");
+                return;
+            }
+
             if (string.IsNullOrWhiteSpace(txtInput.Text)) return;
 
             if (_currentGroupId >= 0)
@@ -200,6 +218,12 @@ namespace ChatClient
 
         private async void btnSendFile_Click(object sender, EventArgs e)
         {
+            if (string.IsNullOrEmpty(_currentUsername))
+            {
+                MessageBox.Show("Bạn chưa đăng nhập!");
+                return;
+            }
+
             using (OpenFileDialog ofd = new OpenFileDialog())
             {
                 ofd.Title = "Chọn file để gửi";
@@ -263,6 +287,12 @@ namespace ChatClient
 
         private async void btnJoinGroup_Click(object sender, EventArgs e)
         {
+            if (string.IsNullOrEmpty(_currentUsername))
+            {
+                MessageBox.Show("Bạn chưa đăng nhập!");
+                return;
+            }
+
             if (lstGroups.SelectedIndex < 0)
             {
                 MessageBox.Show("Vui lòng chọn một nhóm!");
@@ -294,6 +324,12 @@ namespace ChatClient
 
         private async void btnLeaveGroup_Click(object sender, EventArgs e)
         {
+            if (string.IsNullOrEmpty(_currentUsername))
+            {
+                MessageBox.Show("Bạn chưa đăng nhập!");
+                return;
+            }
+
             if (_currentGroupId < 0)
             {
                 MessageBox.Show("Bạn chưa tham gia nhóm nào!");
