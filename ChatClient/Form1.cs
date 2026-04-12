@@ -10,6 +10,7 @@ namespace ChatClient
         private TcpClient? _client;
         private NetworkStream? _stream;
         private string? _currentUsername;
+        private string? _currentGroup;
 
         public Form1() { InitializeComponent(); }
 
@@ -38,7 +39,7 @@ namespace ChatClient
 
         private async Task Receive()
         {
-            byte[] buffer = new byte[1024 * 1024];
+            byte[] buffer = new byte[10 * 1024 * 1024]; // 10MB buffer
             while (_client?.Connected == true)
             {
                 int n = await _stream!.ReadAsync(buffer, 0, buffer.Length);
@@ -48,32 +49,232 @@ namespace ChatClient
 
                 foreach (var part in parts)
                 {
+                    if (string.IsNullOrWhiteSpace(part)) continue;
                     var p = JsonSerializer.Deserialize<Packet>(part);
                     if (p == null) continue;
-                    this.Invoke(() => {
-                        if (p.Type == PacketType.Login && p.IsSuccess)
-                        {
-                            _currentUsername = txtUsername.Text;
-                            grpChat.Enabled = true; grpAuth.Enabled = false;
-                            rtbChat.AppendText("--- Hệ thống: Đăng nhập thành công! ---\n");
-                        }
-                        else if (p.Type == PacketType.Message)
-                        {
-                            rtbChat.AppendText($"{p.Sender}: {p.Content}\n");
-                        }
-                        else if (!string.IsNullOrEmpty(p.Content)) MessageBox.Show(p.Content);
-                    });
+                    this.Invoke(() => HandlePacket(p));
                 }
+            }
+        }
+
+        private void HandlePacket(Packet p)
+        {
+            switch (p.Type)
+            {
+                case PacketType.Login:
+                    if (p.IsSuccess)
+                    {
+                        _currentUsername = txtUsername.Text;
+                        grpChat.Enabled = true;
+                        grpGroup.Enabled = true;
+                        grpAuth.Enabled = false;
+                        AppendSystemMessage("--- Đăng nhập thành công! ---", Color.Green);
+                    }
+                    else
+                    {
+                        MessageBox.Show("Đăng nhập thất bại!");
+                    }
+                    break;
+
+                case PacketType.Register:
+                    MessageBox.Show(p.Content ?? "Kết quả đăng ký");
+                    break;
+
+                case PacketType.Message:
+                    Color senderColor = p.Sender == _currentUsername ? Color.Blue : Color.Red;
+                    if (p.Sender == "HỆ THỐNG") senderColor = Color.Green;
+                    AppendMessageWithColor($"{p.Sender}: {p.Content}\n", senderColor);
+                    break;
+
+                case PacketType.File:
+                    AppendSystemMessage($"📁 {p.Sender} gửi file: {p.FileName} ({FormatFileSize(p.FileSize)})", Color.Purple);
+                    if (p.FileData != null && p.FileData.Length > 0)
+                    {
+                        SaveReceivedFile(p.FileName, p.FileData);
+                    }
+                    break;
+
+                case PacketType.UpdateUserList:
+                    lstOnlineUsers.Items.Clear();
+                    if (p.UserList != null)
+                    {
+                        foreach (var user in p.UserList)
+                        {
+                            lstOnlineUsers.Items.Add(user);
+                        }
+                    }
+                    break;
+            }
+        }
+
+        private void AppendSystemMessage(string text, Color color)
+        {
+            rtbChat.SelectionStart = rtbChat.TextLength;
+            rtbChat.SelectionColor = color;
+            rtbChat.AppendText(text + "\n");
+            rtbChat.SelectionColor = rtbChat.ForeColor;
+        }
+
+        private void AppendMessageWithColor(string text, Color color)
+        {
+            rtbChat.SelectionStart = rtbChat.TextLength;
+            rtbChat.SelectionColor = color;
+            rtbChat.AppendText(text);
+            rtbChat.SelectionColor = rtbChat.ForeColor;
+        }
+
+        private string FormatFileSize(long bytes)
+        {
+            string[] sizes = { "B", "KB", "MB", "GB" };
+            double len = bytes;
+            int order = 0;
+            while (len >= 1024 && order < sizes.Length - 1)
+            {
+                order++;
+                len = len / 1024;
+            }
+            return $"{len:0.##} {sizes[order]}";
+        }
+
+        private void SaveReceivedFile(string? fileName, byte[] fileData)
+        {
+            try
+            {
+                string downloadFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+                string filePath = Path.Combine(downloadFolder, fileName ?? "received_file");
+
+                // Prevent overwriting
+                int counter = 1;
+                string baseFileName = Path.GetFileNameWithoutExtension(filePath);
+                string extension = Path.GetExtension(filePath);
+                while (File.Exists(filePath))
+                {
+                    filePath = Path.Combine(downloadFolder, $"{baseFileName}_{counter}{extension}");
+                    counter++;
+                }
+
+                File.WriteAllBytes(filePath, fileData);
+                AppendSystemMessage($"✅ File đã lưu: {filePath}", Color.Green);
+            }
+            catch (Exception ex)
+            {
+                AppendSystemMessage($"❌ Lỗi lưu file: {ex.Message}", Color.Red);
             }
         }
 
         private async void btnSend_Click(object sender, EventArgs e)
         {
             if (string.IsNullOrWhiteSpace(txtInput.Text)) return;
-            var p = new Packet(PacketType.Message) { Sender = _currentUsername, Content = txtInput.Text };
-            await SendPacket(p);
-            rtbChat.AppendText($"Tôi: {txtInput.Text}\n");
+
+            if (!string.IsNullOrEmpty(_currentGroup))
+            {
+                // Send to group
+                var p = new Packet(PacketType.GroupMessage)
+                {
+                    Sender = _currentUsername,
+                    Content = txtInput.Text,
+                    GroupName = _currentGroup
+                };
+                await SendPacket(p);
+            }
+            else
+            {
+                // Send to all
+                var p = new Packet(PacketType.Message)
+                {
+                    Sender = _currentUsername,
+                    Content = txtInput.Text
+                };
+                await SendPacket(p);
+            }
+
+            AppendMessageWithColor($"Tôi: {txtInput.Text}\n", Color.Blue);
             txtInput.Clear();
+        }
+
+        private async void btnSendFile_Click(object sender, EventArgs e)
+        {
+            using (OpenFileDialog ofd = new OpenFileDialog())
+            {
+                ofd.Title = "Chọn file để gửi";
+                ofd.Filter = "All Files (*.*)|*.*";
+
+                if (ofd.ShowDialog() == DialogResult.OK)
+                {
+                    try
+                    {
+                        string filePath = ofd.FileName;
+                        string fileName = Path.GetFileName(filePath);
+                        byte[] fileData = File.ReadAllBytes(filePath);
+
+                        var p = new Packet(PacketType.File)
+                        {
+                            Sender = _currentUsername,
+                            FileName = fileName,
+                            FileSize = fileData.Length,
+                            FileData = fileData,
+                            GroupName = _currentGroup
+                        };
+
+                        await SendPacket(p);
+                        AppendSystemMessage($"📤 Gửi file: {fileName} ({FormatFileSize(fileData.Length)})", Color.Purple);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Lỗi khi gửi file: {ex.Message}");
+                    }
+                }
+            }
+        }
+
+        private async void btnCreateGroup_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(txtGroupName.Text))
+            {
+                MessageBox.Show("Vui lòng nhập tên nhóm!");
+                return;
+            }
+
+            _currentGroup = txtGroupName.Text;
+            var p = new Packet(PacketType.CreateGroup)
+            {
+                GroupName = _currentGroup,
+                Sender = _currentUsername
+            };
+            await SendPacket(p);
+            AppendSystemMessage($"✅ Tạo nhóm: {_currentGroup}", Color.Green);
+            txtGroupName.Clear();
+        }
+
+        private async void btnJoinGroup_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(txtGroupName.Text))
+            {
+                MessageBox.Show("Vui lòng nhập tên nhóm!");
+                return;
+            }
+
+            _currentGroup = txtGroupName.Text;
+            var p = new Packet(PacketType.JoinGroup)
+            {
+                GroupName = _currentGroup,
+                Sender = _currentUsername
+            };
+            await SendPacket(p);
+            AppendSystemMessage($"✅ Tham gia nhóm: {_currentGroup}", Color.Green);
+            txtGroupName.Clear();
+        }
+
+        private async void btnLeaveGroup_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrEmpty(_currentGroup))
+            {
+                MessageBox.Show("Bạn chưa tham gia nhóm nào!");
+                return;
+            }
+
+            AppendSystemMessage($"✅ Rời khỏi nhóm: {_currentGroup}", Color.Green);
+            _currentGroup = null;
         }
 
         private async Task SendPacket(Packet p)

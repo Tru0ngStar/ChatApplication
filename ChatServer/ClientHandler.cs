@@ -11,6 +11,7 @@ namespace ChatServer
         private readonly NetworkStream _stream;
         public string? Username { get; private set; }
         public bool IsConnected => _client.Connected;
+        private string? _currentGroup;
 
         public ClientHandler(TcpClient client)
         {
@@ -22,7 +23,7 @@ namespace ChatServer
         {
             try
             {
-                byte[] buffer = new byte[1024 * 1024];
+                byte[] buffer = new byte[10 * 1024 * 1024]; // 10MB buffer for files
                 while (IsConnected)
                 {
                     int read = await _stream.ReadAsync(buffer, 0, buffer.Length);
@@ -32,12 +33,13 @@ namespace ChatServer
                     var packets = json.Replace("}{", "}|{").Split('|');
                     foreach (var p in packets)
                     {
+                        if (string.IsNullOrWhiteSpace(p)) continue;
                         var packet = JsonSerializer.Deserialize<Packet>(p);
                         if (packet != null) await ProcessPacketAsync(packet);
                     }
                 }
             }
-            catch { }
+            catch (Exception ex) { Console.WriteLine($"[ERROR] {Username}: {ex.Message}"); }
             finally { Disconnect(); }
         }
 
@@ -59,6 +61,7 @@ namespace ChatServer
                         Console.WriteLine($"[AUTH] {Username} đã đăng nhập thành công.");
                     }
                     await SendPacketAsync(new Packet(PacketType.Login) { IsSuccess = logOk });
+                    if (logOk) await Program.UpdateAllClientsUserListAsync();
                     break;
 
                 case PacketType.Message:
@@ -72,8 +75,45 @@ namespace ChatServer
                 case PacketType.File:
                     if (!string.IsNullOrEmpty(Username))
                     {
-                        Console.WriteLine($"[FILE] {Username} đang gửi file: {packet.FileName}");
+                        Console.WriteLine($"[FILE] {Username} gửi file: {packet.FileName} ({packet.FileSize} bytes)");
                         await Program.BroadcastAsync(packet, this);
+                    }
+                    break;
+
+                case PacketType.CreateGroup:
+                    if (!string.IsNullOrEmpty(Username))
+                    {
+                        Program.AddClientToGroup(packet.GroupName!, this);
+                        _currentGroup = packet.GroupName;
+                        var msg = new Packet(PacketType.Message) 
+                        { 
+                            Sender = "HỆ THỐNG", 
+                            Content = $"{Username} đã tạo nhóm: {packet.GroupName}" 
+                        };
+                        await Program.BroadcastToGroupAsync(packet.GroupName!, msg);
+                    }
+                    break;
+
+                case PacketType.JoinGroup:
+                    if (!string.IsNullOrEmpty(Username))
+                    {
+                        Program.AddClientToGroup(packet.GroupName!, this);
+                        _currentGroup = packet.GroupName;
+                        var msg = new Packet(PacketType.Message) 
+                        { 
+                            Sender = "HỆ THỐNG", 
+                            Content = $"{Username} đã tham gia nhóm: {packet.GroupName}" 
+                        };
+                        await Program.BroadcastToGroupAsync(packet.GroupName!, msg);
+                    }
+                    break;
+
+                case PacketType.GroupMessage:
+                    if (!string.IsNullOrEmpty(Username) && !string.IsNullOrEmpty(_currentGroup))
+                    {
+                        Console.WriteLine($"[GROUP {_currentGroup}] {Username}: {packet.Content}");
+                        packet.Type = PacketType.Message; // Convert to regular message for display
+                        await Program.BroadcastToGroupAsync(_currentGroup, packet, this);
                     }
                     break;
             }
@@ -81,6 +121,19 @@ namespace ChatServer
 
         public async Task SendAsync(byte[] data) => await _stream.WriteAsync(data, 0, data.Length);
         private async Task SendPacketAsync(Packet p) => await SendAsync(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(p)));
-        public void Disconnect() { _client.Close(); Program.RemoveClient(this); }
+
+        public void Disconnect()
+        {
+            if (!string.IsNullOrEmpty(_currentGroup))
+            {
+                Program.RemoveClientFromGroup(_currentGroup, this);
+            }
+            _client.Close();
+            Program.RemoveClient(this);
+            if (!string.IsNullOrEmpty(Username))
+            {
+                _ = Program.UpdateAllClientsUserListAsync();
+            }
+        }
     }
 }

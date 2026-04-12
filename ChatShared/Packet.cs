@@ -5,7 +5,11 @@
         Register,
         Login,
         Message,
-        File
+        File,
+        UpdateUserList,
+        CreateGroup,
+        JoinGroup,
+        GroupMessage
     }
 
     public class Packet
@@ -16,14 +20,19 @@
         public string? Content { get; set; }
         public bool IsSuccess { get; set; }
 
-        // Các trường phục vụ gửi File (Dùng cho bước tiếp theo)
+        // Trường cho file transfer
         public string? FileName { get; set; }
         public long FileSize { get; set; }
         public byte[]? FileData { get; set; }
 
+        // Trường cho group chat
+        public string? GroupName { get; set; }
+        public List<string>? UserList { get; set; }
+
         public Packet(PacketType type)
         {
             Type = type;
+            UserList = new List<string>();
         }
     }
 }
