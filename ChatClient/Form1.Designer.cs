@@ -30,10 +30,10 @@
             lstOnlineUsers = new ListBox();
             lblOnlineUsers = new Label();
             grpGroup = new GroupBox();
+            lstGroups = new ListBox();
             btnLeaveGroup = new Button();
             btnJoinGroup = new Button();
-            txtGroupName = new TextBox();
-            btnCreateGroup = new Button();
+            lblGroupList = new Label();
             grpAuth.SuspendLayout();
             grpChat.SuspendLayout();
             grpGroup.SuspendLayout();
@@ -99,44 +99,49 @@
             // grpGroup
             grpGroup.Controls.Add(btnLeaveGroup);
             grpGroup.Controls.Add(btnJoinGroup);
-            grpGroup.Controls.Add(txtGroupName);
-            grpGroup.Controls.Add(btnCreateGroup);
+            grpGroup.Controls.Add(lstGroups);
+            grpGroup.Controls.Add(lblGroupList);
             grpGroup.Location = new Point(12, 410);
             grpGroup.Name = "grpGroup";
-            grpGroup.Size = new Size(300, 150);
+            grpGroup.Size = new Size(300, 220);
             grpGroup.TabIndex = 4;
             grpGroup.TabStop = false;
             grpGroup.Text = "Nhóm Chat";
 
-            // btnCreateGroup
-            btnCreateGroup.Location = new Point(20, 55);
-            btnCreateGroup.Name = "btnCreateGroup";
-            btnCreateGroup.Size = new Size(130, 34);
-            btnCreateGroup.TabIndex = 0;
-            btnCreateGroup.Text = "Tạo Nhóm";
-            btnCreateGroup.Click += btnCreateGroup_Click;
+            // lblGroupList
+            lblGroupList.AutoSize = true;
+            lblGroupList.Location = new Point(20, 25);
+            lblGroupList.Name = "lblGroupList";
+            lblGroupList.Size = new Size(100, 20);
+            lblGroupList.TabIndex = 0;
+            lblGroupList.Text = "Chọn nhóm:";
 
-            // txtGroupName
-            txtGroupName.Location = new Point(20, 25);
-            txtGroupName.Name = "txtGroupName";
-            txtGroupName.PlaceholderText = "Tên nhóm";
-            txtGroupName.Size = new Size(260, 31);
-            txtGroupName.TabIndex = 1;
+            // lstGroups
+            lstGroups.Location = new Point(20, 50);
+            lstGroups.Name = "lstGroups";
+            lstGroups.Size = new Size(260, 100);
+            lstGroups.TabIndex = 1;
+            lstGroups.SelectedIndexChanged += lstGroups_SelectedIndexChanged;
+            lstGroups.Items.Add("Group 1");
+            lstGroups.Items.Add("Group 2");
+            lstGroups.Items.Add("Group 3");
 
             // btnJoinGroup
-            btnJoinGroup.Location = new Point(20, 95);
+            btnJoinGroup.Location = new Point(20, 160);
             btnJoinGroup.Name = "btnJoinGroup";
             btnJoinGroup.Size = new Size(130, 34);
             btnJoinGroup.TabIndex = 2;
             btnJoinGroup.Text = "Tham gia Nhóm";
+            btnJoinGroup.Enabled = false;
             btnJoinGroup.Click += btnJoinGroup_Click;
 
             // btnLeaveGroup
-            btnLeaveGroup.Location = new Point(160, 95);
+            btnLeaveGroup.Location = new Point(160, 160);
             btnLeaveGroup.Name = "btnLeaveGroup";
             btnLeaveGroup.Size = new Size(120, 34);
             btnLeaveGroup.TabIndex = 3;
             btnLeaveGroup.Text = "Rời Nhóm";
+            btnLeaveGroup.Enabled = false;
             btnLeaveGroup.Click += btnLeaveGroup_Click;
 
             // grpChat
@@ -147,13 +152,13 @@
             grpChat.Enabled = false;
             grpChat.Location = new Point(330, 12);
             grpChat.Name = "grpChat";
-            grpChat.Size = new Size(600, 548);
+            grpChat.Size = new Size(600, 618);
             grpChat.TabIndex = 1;
             grpChat.TabStop = false;
             grpChat.Text = "Phòng Chat";
 
             // btnSend
-            btnSend.Location = new Point(400, 495);
+            btnSend.Location = new Point(400, 565);
             btnSend.Name = "btnSend";
             btnSend.Size = new Size(90, 34);
             btnSend.TabIndex = 0;
@@ -161,7 +166,7 @@
             btnSend.Click += btnSend_Click;
 
             // btnSendFile
-            btnSendFile.Location = new Point(500, 495);
+            btnSendFile.Location = new Point(500, 565);
             btnSendFile.Name = "btnSendFile";
             btnSendFile.Size = new Size(90, 34);
             btnSendFile.TabIndex = 4;
@@ -169,7 +174,7 @@
             btnSendFile.Click += btnSendFile_Click;
 
             // txtInput
-            txtInput.Location = new Point(20, 495);
+            txtInput.Location = new Point(20, 565);
             txtInput.Name = "txtInput";
             txtInput.Size = new Size(370, 31);
             txtInput.TabIndex = 1;
@@ -177,14 +182,14 @@
             // rtbChat
             rtbChat.Location = new Point(20, 30);
             rtbChat.Name = "rtbChat";
-            rtbChat.Size = new Size(560, 450);
+            rtbChat.Size = new Size(560, 520);
             rtbChat.TabIndex = 2;
             rtbChat.Text = "";
 
             // Form1
             AutoScaleDimensions = new SizeF(10F, 25F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(950, 570);
+            ClientSize = new Size(950, 640);
             Controls.Add(grpGroup);
             Controls.Add(lstOnlineUsers);
             Controls.Add(lblOnlineUsers);
@@ -217,8 +222,8 @@
         private ListBox lstOnlineUsers;
         private Label lblOnlineUsers;
         private GroupBox grpGroup;
-        private TextBox txtGroupName;
-        private Button btnCreateGroup;
+        private ListBox lstGroups;
+        private Label lblGroupList;
         private Button btnJoinGroup;
         private Button btnLeaveGroup;
     }

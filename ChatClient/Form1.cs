@@ -10,7 +10,13 @@ namespace ChatClient
         private TcpClient? _client;
         private NetworkStream? _stream;
         private string? _currentUsername;
-        private string? _currentGroup;
+        private int _currentGroupId = -1; // Changed from string to int (-1 means not in a group)
+        private readonly Dictionary<int, string> _groupNames = new() // Map GroupId to display name
+        {
+            { 0, "Group 1" },
+            { 1, "Group 2" },
+            { 2, "Group 3" }
+        };
 
         public Form1() { InitializeComponent(); }
 
@@ -166,14 +172,14 @@ namespace ChatClient
         {
             if (string.IsNullOrWhiteSpace(txtInput.Text)) return;
 
-            if (!string.IsNullOrEmpty(_currentGroup))
+            if (_currentGroupId >= 0)
             {
                 // Send to group
                 var p = new Packet(PacketType.GroupMessage)
                 {
                     Sender = _currentUsername,
                     Content = txtInput.Text,
-                    GroupName = _currentGroup
+                    GroupId = _currentGroupId
                 };
                 await SendPacket(p);
             }
@@ -213,7 +219,7 @@ namespace ChatClient
                             FileName = fileName,
                             FileSize = fileData.Length,
                             FileData = fileData,
-                            GroupName = _currentGroup
+                            GroupId = _currentGroupId
                         };
 
                         await SendPacket(p);
@@ -227,54 +233,92 @@ namespace ChatClient
             }
         }
 
-        private async void btnCreateGroup_Click(object sender, EventArgs e)
+        private void lstGroups_SelectedIndexChanged(object sender, EventArgs e)
         {
-            if (string.IsNullOrWhiteSpace(txtGroupName.Text))
+            if (lstGroups.SelectedIndex < 0)
             {
-                MessageBox.Show("Vui lòng nhập tên nhóm!");
+                btnJoinGroup.Enabled = false;
+                btnLeaveGroup.Enabled = false;
                 return;
             }
 
-            _currentGroup = txtGroupName.Text;
-            var p = new Packet(PacketType.CreateGroup)
+            // Enable buttons when a group is selected
+            btnJoinGroup.Enabled = true;
+            btnLeaveGroup.Enabled = (_currentGroupId == lstGroups.SelectedIndex);
+
+            // Show which group is selected
+            if (_currentGroupId == lstGroups.SelectedIndex)
             {
-                GroupName = _currentGroup,
-                Sender = _currentUsername
-            };
-            await SendPacket(p);
-            AppendSystemMessage($"✅ Tạo nhóm: {_currentGroup}", Color.Green);
-            txtGroupName.Clear();
+                btnJoinGroup.Text = "Đã tham gia";
+                btnJoinGroup.Enabled = false;
+                btnLeaveGroup.Enabled = true;
+            }
+            else
+            {
+                btnJoinGroup.Text = "Tham gia Nhóm";
+                btnJoinGroup.Enabled = true;
+                btnLeaveGroup.Enabled = false;
+            }
         }
 
         private async void btnJoinGroup_Click(object sender, EventArgs e)
         {
-            if (string.IsNullOrWhiteSpace(txtGroupName.Text))
+            if (lstGroups.SelectedIndex < 0)
             {
-                MessageBox.Show("Vui lòng nhập tên nhóm!");
+                MessageBox.Show("Vui lòng chọn một nhóm!");
                 return;
             }
 
-            _currentGroup = txtGroupName.Text;
+            int selectedGroupId = lstGroups.SelectedIndex;
+            _currentGroupId = selectedGroupId;
+
+            rtbChat.Clear(); // Clear chat when switching groups
+            string groupName = _groupNames[selectedGroupId];
+
+            // Load chat history for this group
+            LoadGroupHistory(selectedGroupId);
+
             var p = new Packet(PacketType.JoinGroup)
             {
-                GroupName = _currentGroup,
+                GroupId = selectedGroupId,
                 Sender = _currentUsername
             };
             await SendPacket(p);
-            AppendSystemMessage($"✅ Tham gia nhóm: {_currentGroup}", Color.Green);
-            txtGroupName.Clear();
+            AppendSystemMessage($"✅ Tham gia nhóm: {groupName}", Color.Green);
+
+            // Update button states
+            btnJoinGroup.Text = "Đã tham gia";
+            btnJoinGroup.Enabled = false;
+            btnLeaveGroup.Enabled = true;
         }
 
         private async void btnLeaveGroup_Click(object sender, EventArgs e)
         {
-            if (string.IsNullOrEmpty(_currentGroup))
+            if (_currentGroupId < 0)
             {
                 MessageBox.Show("Bạn chưa tham gia nhóm nào!");
                 return;
             }
 
-            AppendSystemMessage($"✅ Rời khỏi nhóm: {_currentGroup}", Color.Green);
-            _currentGroup = null;
+            string groupName = _groupNames[_currentGroupId];
+            int departingGroupId = _currentGroupId;
+            _currentGroupId = -1;
+
+            var p = new Packet(PacketType.LeaveGroup)
+            {
+                GroupId = departingGroupId,
+                Sender = _currentUsername
+            };
+            await SendPacket(p);
+            AppendSystemMessage($"✅ Rời khỏi nhóm: {groupName}", Color.Green);
+
+            rtbChat.Clear(); // Clear chat when leaving group
+            lstGroups.SelectedIndex = -1;
+
+            // Update button states
+            btnJoinGroup.Text = "Tham gia Nhóm";
+            btnJoinGroup.Enabled = false;
+            btnLeaveGroup.Enabled = false;
         }
 
         private async Task SendPacket(Packet p)
@@ -282,5 +326,43 @@ namespace ChatClient
             var d = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(p));
             await _stream!.WriteAsync(d, 0, d.Length);
         }
+
+        private void LoadGroupHistory(int groupId)
+        {
+            try
+            {
+                string historyFile = Path.Combine(AppContext.BaseDirectory, "chat_history.json");
+                if (!File.Exists(historyFile))
+                    return;
+
+                var json = File.ReadAllText(historyFile);
+                var allMessages = JsonSerializer.Deserialize<List<ChatMessage>>(json) ?? new List<ChatMessage>();
+
+                var groupMessages = allMessages
+                    .Where(m => m.GroupId == groupId)
+                    .OrderBy(m => m.Timestamp)
+                    .ToList();
+
+                foreach (var msg in groupMessages)
+                {
+                    Color senderColor = msg.Sender == _currentUsername ? Color.Blue : Color.Red;
+                    if (msg.Sender == "HỆ THỐNG") senderColor = Color.Green;
+
+                    string timestamp = msg.Timestamp.ToString("HH:mm:ss");
+                    AppendMessageWithColor($"[{timestamp}] {msg.Sender}: {msg.Content}\n", senderColor);
+                }
+            }
+            catch { /* Ignore errors loading history */ }
+        }
+    }
+
+    public class ChatMessage
+    {
+        public int Id { get; set; }
+        public int GroupId { get; set; }
+        public string Sender { get; set; }
+        public string Content { get; set; }
+        public string MessageType { get; set; }
+        public DateTime Timestamp { get; set; }
     }
 }

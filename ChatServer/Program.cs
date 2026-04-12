@@ -10,19 +10,30 @@ namespace ChatServer
     {
         private static TcpListener? _listener;
         private static readonly List<ClientHandler> _clients = new();
-        private static readonly Dictionary<string, List<ClientHandler>> _groups = new();
+        private static readonly Dictionary<int, List<ClientHandler>> _groups = new(); // Changed to int-based GroupId
         private static readonly object _clientLock = new();
+        private static readonly object _groupLock = new(); // Added for thread-safe group operations
         private const int Port = 9999;
+
+        // Predefined groups: Group 1 (ID=0), Group 2 (ID=1), Group 3 (ID=2)
+        private static readonly Dictionary<int, string> _groupNames = new()
+        {
+            { 0, "Group 1" },
+            { 1, "Group 2" },
+            { 2, "Group 3" }
+        };
 
         static async Task Main(string[] args)
         {
             Console.OutputEncoding = Encoding.UTF8;
             DatabaseContext.Initialize();
+            ChatHistoryManager.Initialize();
 
             _listener = new TcpListener(IPAddress.Any, Port);
             _listener.Start();
 
             Console.WriteLine("[DB] Cơ sở dữ liệu tài khoản đã sẵn sàng.");
+            Console.WriteLine("[HISTORY] Lịch sử chat đã được tải.");
             Console.WriteLine("======================================");
             Console.WriteLine($" SERVER CHAT ĐÃ KHỞI ĐỘNG");
             Console.WriteLine($" Cổng: {Port}");
@@ -62,28 +73,41 @@ namespace ChatServer
             }
         }
 
-        public static async Task BroadcastToGroupAsync(string groupName, Packet packet, ClientHandler? exclude = null)
+        public static async Task BroadcastToGroupAsync(int groupId, Packet packet, ClientHandler? exclude = null)
         {
-            if (!_groups.ContainsKey(groupName)) return;
-            var json = JsonSerializer.Serialize(packet);
-            var data = Encoding.UTF8.GetBytes(json);
-            foreach (var client in _groups[groupName].ToList())
+            lock (_groupLock)
             {
-                if (client == exclude || !client.IsConnected) continue;
-                try { await client.SendAsync(data); } catch { client.Disconnect(); }
+                if (!_groups.ContainsKey(groupId)) return;
+                var clientsCopy = _groups[groupId].ToList();
+                var json = JsonSerializer.Serialize(packet);
+                var data = Encoding.UTF8.GetBytes(json);
+
+                foreach (var client in clientsCopy)
+                {
+                    if (client == exclude || !client.IsConnected) continue;
+                    try { _ = Task.Run(() => client.SendAsync(data)); }
+                    catch { client.Disconnect(); }
+                }
             }
         }
 
-        public static void AddClientToGroup(string groupName, ClientHandler handler)
+        public static void AddClientToGroup(int groupId, ClientHandler handler)
         {
-            if (!_groups.ContainsKey(groupName)) _groups[groupName] = new();
-            if (!_groups[groupName].Contains(handler)) _groups[groupName].Add(handler);
+            lock (_groupLock)
+            {
+                if (!_groups.ContainsKey(groupId)) _groups[groupId] = new();
+                if (!_groups[groupId].Contains(handler)) _groups[groupId].Add(handler);
+            }
+            string groupName = _groupNames.ContainsKey(groupId) ? _groupNames[groupId] : $"Group {groupId}";
             Console.WriteLine($"[GROUP] {handler.Username} tham gia nhóm: {groupName}");
         }
 
-        public static void RemoveClientFromGroup(string groupName, ClientHandler handler)
+        public static void RemoveClientFromGroup(int groupId, ClientHandler handler)
         {
-            if (_groups.ContainsKey(groupName)) _groups[groupName].Remove(handler);
+            lock (_groupLock)
+            {
+                if (_groups.ContainsKey(groupId)) _groups[groupId].Remove(handler);
+            }
         }
 
         public static List<string> GetOnlineUsers()

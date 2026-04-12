@@ -11,7 +11,7 @@ namespace ChatServer
         private readonly NetworkStream _stream;
         public string? Username { get; private set; }
         public bool IsConnected => _client.Connected;
-        private string? _currentGroup;
+        private int _currentGroupId = -1; // Changed from string to int (-1 means not in a group)
 
         public ClientHandler(TcpClient client)
         {
@@ -81,39 +81,61 @@ namespace ChatServer
                     break;
 
                 case PacketType.CreateGroup:
-                    if (!string.IsNullOrEmpty(Username))
+                    if (!string.IsNullOrEmpty(Username) && packet.GroupId >= 0)
                     {
-                        Program.AddClientToGroup(packet.GroupName!, this);
-                        _currentGroup = packet.GroupName;
+                        Program.AddClientToGroup(packet.GroupId, this);
+                        _currentGroupId = packet.GroupId;
                         var msg = new Packet(PacketType.Message) 
                         { 
                             Sender = "HỆ THỐNG", 
-                            Content = $"{Username} đã tạo nhóm: {packet.GroupName}" 
+                            Content = $"{Username} đã tạo nhóm: Group {packet.GroupId + 1}",
+                            GroupId = packet.GroupId
                         };
-                        await Program.BroadcastToGroupAsync(packet.GroupName!, msg);
+                        await Program.BroadcastToGroupAsync(packet.GroupId, msg);
                     }
                     break;
 
                 case PacketType.JoinGroup:
-                    if (!string.IsNullOrEmpty(Username))
+                    if (!string.IsNullOrEmpty(Username) && packet.GroupId >= 0)
                     {
-                        Program.AddClientToGroup(packet.GroupName!, this);
-                        _currentGroup = packet.GroupName;
+                        Program.AddClientToGroup(packet.GroupId, this);
+                        _currentGroupId = packet.GroupId;
                         var msg = new Packet(PacketType.Message) 
                         { 
                             Sender = "HỆ THỐNG", 
-                            Content = $"{Username} đã tham gia nhóm: {packet.GroupName}" 
+                            Content = $"{Username} đã tham gia nhóm: Group {packet.GroupId + 1}",
+                            GroupId = packet.GroupId
                         };
-                        await Program.BroadcastToGroupAsync(packet.GroupName!, msg);
+                        await Program.BroadcastToGroupAsync(packet.GroupId, msg);
                     }
                     break;
 
                 case PacketType.GroupMessage:
-                    if (!string.IsNullOrEmpty(Username) && !string.IsNullOrEmpty(_currentGroup))
+                    if (!string.IsNullOrEmpty(Username) && _currentGroupId >= 0)
                     {
-                        Console.WriteLine($"[GROUP {_currentGroup}] {Username}: {packet.Content}");
+                        Console.WriteLine($"[GROUP {_currentGroupId}] {Username}: {packet.Content}");
                         packet.Type = PacketType.Message; // Convert to regular message for display
-                        await Program.BroadcastToGroupAsync(_currentGroup, packet, this);
+                        packet.GroupId = _currentGroupId; // Ensure packet has correct GroupId
+                        ChatHistoryManager.SaveMessage(_currentGroupId, Username, packet.Content, "Message");
+                        await Program.BroadcastToGroupAsync(_currentGroupId, packet, this);
+                    }
+                    break;
+
+                case PacketType.LeaveGroup:
+                    if (!string.IsNullOrEmpty(Username) && packet.GroupId >= 0)
+                    {
+                        Program.RemoveClientFromGroup(packet.GroupId, this);
+                        if (_currentGroupId == packet.GroupId)
+                        {
+                            _currentGroupId = -1;
+                        }
+                        var msg = new Packet(PacketType.Message)
+                        {
+                            Sender = "HỆ THỐNG",
+                            Content = $"{Username} đã rời khỏi nhóm: Group {packet.GroupId + 1}",
+                            GroupId = packet.GroupId
+                        };
+                        await Program.BroadcastToGroupAsync(packet.GroupId, msg);
                     }
                     break;
             }
@@ -124,9 +146,9 @@ namespace ChatServer
 
         public void Disconnect()
         {
-            if (!string.IsNullOrEmpty(_currentGroup))
+            if (_currentGroupId >= 0)
             {
-                Program.RemoveClientFromGroup(_currentGroup, this);
+                Program.RemoveClientFromGroup(_currentGroupId, this);
             }
             _client.Close();
             Program.RemoveClient(this);
