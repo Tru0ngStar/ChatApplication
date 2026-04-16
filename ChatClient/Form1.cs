@@ -18,7 +18,11 @@ namespace ChatClient
             { 2, "Group 3" }
         };
 
-        public Form1() { InitializeComponent(); }
+        public Form1() 
+        { 
+            InitializeComponent();
+            txtInput.KeyDown += TxtInput_KeyDown;
+        }
 
         private async void btnLogin_Click(object sender, EventArgs e) => await Auth(PacketType.Login);
         private async void btnRegister_Click(object sender, EventArgs e) => await Auth(PacketType.Register);
@@ -254,6 +258,15 @@ namespace ChatClient
                         MessageBox.Show($"Lỗi khi gửi file: {ex.Message}");
                     }
                 }
+            }
+        }
+
+        private void TxtInput_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Return)
+            {
+                e.Handled = true;
+                btnSend_Click(sender, e);
             }
         }
 
