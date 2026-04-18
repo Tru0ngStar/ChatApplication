@@ -10,7 +10,11 @@
         CreateGroup,
         JoinGroup,
         GroupMessage,
-        LeaveGroup
+        LeaveGroup,
+        FileList,
+        FileListRequest,
+        FileDownloadRequest,
+        FileDownloadResponse
     }
 
     public class Packet
@@ -25,6 +29,8 @@
         public string? FileName { get; set; }
         public long FileSize { get; set; }
         public byte[]? FileData { get; set; }
+        public int FileId { get; set; }
+        public List<FileInfo>? FileList { get; set; }
 
         // Trường cho group chat
         public string? GroupName { get; set; }
@@ -37,5 +43,14 @@
             UserList = new List<string>();
             GroupId = -1; // Mặc định: không phải nhóm nào
         }
+    }
+
+    public class FileInfo
+    {
+        public int Id { get; set; }
+        public string? FileName { get; set; }
+        public long FileSize { get; set; }
+        public string? Sender { get; set; }
+        public DateTime UploadedTime { get; set; }
     }
 }

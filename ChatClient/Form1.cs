@@ -11,6 +11,7 @@ namespace ChatClient
         private NetworkStream? _stream;
         private string? _currentUsername;
         private int _currentGroupId = -1; // Changed from string to int (-1 means not in a group)
+        private List<ChatShared.FileInfo>? _currentFileList;
         private readonly Dictionary<int, string> _groupNames = new() // Map GroupId to display name
         {
             { 0, "Group 1" },
@@ -18,8 +19,8 @@ namespace ChatClient
             { 2, "Group 3" }
         };
 
-        public Form1() 
-        { 
+        public Form1()
+        {
             InitializeComponent();
             txtInput.KeyDown += TxtInput_KeyDown;
         }
@@ -91,6 +92,7 @@ namespace ChatClient
                         grpGroup.Enabled = true;
                         grpAuth.Enabled = false;
                         AppendSystemMessage("--- Đăng nhập thành công! ---", Color.Green);
+                        RefreshFileList();
                     }
                     else
                     {
@@ -114,6 +116,7 @@ namespace ChatClient
                     {
                         SaveReceivedFile(p.FileName, p.FileData);
                     }
+                    RefreshFileList();
                     break;
 
                 case PacketType.UpdateUserList:
@@ -124,6 +127,18 @@ namespace ChatClient
                         {
                             lstOnlineUsers.Items.Add(user);
                         }
+                    }
+                    break;
+
+                case PacketType.FileList:
+                    _currentFileList = p.FileList;
+                    DisplayFileList();
+                    break;
+
+                case PacketType.FileDownloadResponse:
+                    if (p.FileData != null && p.FileData.Length > 0)
+                    {
+                        SaveReceivedFile(p.FileName, p.FileData);
                     }
                     break;
             }
@@ -261,6 +276,23 @@ namespace ChatClient
             }
         }
 
+        private async void btnDownloadFile_Click(object sender, EventArgs e)
+        {
+            if (lstFileList?.SelectedIndex < 0)
+            {
+                MessageBox.Show("Vui lòng chọn một file!");
+                return;
+            }
+
+            if (_currentFileList == null || _currentFileList.Count == 0)
+                return;
+
+            var selectedFile = _currentFileList[lstFileList.SelectedIndex];
+            var requestPacket = new Packet(PacketType.FileDownloadRequest) { FileId = selectedFile.Id };
+            await SendPacket(requestPacket);
+            AppendSystemMessage($"📥 Đang tải file: {selectedFile.FileName}...", Color.Blue);
+        }
+
         private void TxtInput_KeyDown(object sender, KeyEventArgs e)
         {
             if (e.KeyCode == Keys.Return)
@@ -376,6 +408,28 @@ namespace ChatClient
             await _stream!.WriteAsync(d, 0, d.Length);
         }
 
+        private void RefreshFileList()
+        {
+            var fileListRequest = new Packet(PacketType.FileListRequest);
+            _ = SendPacket(fileListRequest);
+        }
+
+        private void DisplayFileList()
+        {
+            if (lstFileList == null) return;
+            lstFileList.Items.Clear();
+            if (_currentFileList == null || _currentFileList.Count == 0)
+            {
+                lstFileList.Items.Add("(Không có file nào)");
+                return;
+            }
+            foreach (var file in _currentFileList)
+            {
+                string displayText = $"{file.FileName} ({FormatFileSize(file.FileSize)}) - {file.UploadedTime:HH:mm:ss}";
+                lstFileList.Items.Add(displayText);
+            }
+        }
+
         private void LoadGroupHistory(int groupId)
         {
             try
@@ -402,6 +456,16 @@ namespace ChatClient
                 }
             }
             catch { /* Ignore errors loading history */ }
+        }
+
+        private void lstFileList_SelectedIndexChanged(object sender, EventArgs e)
+        {
+
+        }
+
+        private void rtbChat_TextChanged(object sender, EventArgs e)
+        {
+
         }
     }
 
