@@ -26,20 +26,38 @@ namespace ChatServer
                 byte[] buffer = new byte[10 * 1024 * 1024]; // 10MB buffer for files
                 while (IsConnected)
                 {
-                    int read = await _stream.ReadAsync(buffer, 0, buffer.Length);
-                    if (read == 0) break;
-                    string json = Encoding.UTF8.GetString(buffer, 0, read);
-
-                    var packets = json.Replace("}{", "}|{").Split('|');
-                    foreach (var p in packets)
+                    try
                     {
-                        if (string.IsNullOrWhiteSpace(p)) continue;
-                        var packet = JsonSerializer.Deserialize<Packet>(p);
-                        if (packet != null) await ProcessPacketAsync(packet);
+                        int read = await _stream.ReadAsync(buffer, 0, buffer.Length);
+                        if (read == 0) break;
+                        string json = Encoding.UTF8.GetString(buffer, 0, read);
+
+                        var packets = json.Replace("}{", "}|{").Split('|');
+                        foreach (var p in packets)
+                        {
+                            if (string.IsNullOrWhiteSpace(p)) continue;
+                            var packet = JsonSerializer.Deserialize<Packet>(p);
+                            if (packet != null) await ProcessPacketAsync(packet);
+                        }
+                    }
+                    catch (IOException ioEx)
+                    {
+                        // Handle "An existing connection was forcibly closed by the remote host"
+                        if (ioEx.InnerException is SocketException)
+                        {
+                            break; // Gracefully exit on forcible connection close
+                        }
+                        throw;
                     }
                 }
             }
-            catch (Exception ex) { Console.WriteLine($"[ERROR] {Username}: {ex.Message}"); }
+            catch (Exception ex) 
+            { 
+                if (!string.IsNullOrEmpty(Username))
+                {
+                    Console.WriteLine($"[ERROR] {Username}: {ex.GetType().Name} - {ex.Message}");
+                }
+            }
             finally { Disconnect(); }
         }
 
@@ -65,10 +83,22 @@ namespace ChatServer
                     break;
 
                 case PacketType.Message:
-                    if (!string.IsNullOrEmpty(Username))
+                    if (!string.IsNullOrEmpty(Username) && _currentGroupId >= 0)
                     {
                         Console.WriteLine($"[MSG] {Username}: {packet.Content}");
-                        await Program.BroadcastAsync(packet, this);
+                        packet.GroupId = _currentGroupId;
+                        await Program.BroadcastToGroupAsync(_currentGroupId, packet, this);
+                    }
+                    else if (!string.IsNullOrEmpty(Username) && _currentGroupId < 0)
+                    {
+                        // Send error message to user that they need to join a group first
+                        var errorPacket = new Packet(PacketType.Message)
+                        {
+                            Sender = "HỆ THỐNG",
+                            Content = "❌ Bạn cần tham gia một nhóm trước khi có thể chat!",
+                            GroupId = -1
+                        };
+                        await SendPacketAsync(errorPacket);
                     }
                     break;
 
