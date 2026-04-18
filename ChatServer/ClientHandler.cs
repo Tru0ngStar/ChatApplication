@@ -77,7 +77,7 @@ namespace ChatServer
                     {
                         Console.WriteLine($"[FILE] {Username} gửi file: {packet.FileName} ({packet.FileSize} bytes)");
 
-                        // Lưu file vào disk
+                         // Lưu file vào disk
                         try
                         {
                             string uploadsDir = Path.Combine(AppContext.BaseDirectory, "Uploads");
@@ -99,15 +99,27 @@ namespace ChatServer
                             {
                                 File.WriteAllBytes(filePath, packet.FileData);
                                 Console.WriteLine($"[FILE] Đã lưu file: {filePath}");
+
+                                // Lưu thông tin file vào database
+                                DatabaseContext.SaveFileUpload(
+                                    packet.FileName ?? "unnamed_file",
+                                    packet.FileSize,
+                                    Username ?? "Unknown",
+                                    filePath,
+                                    _currentGroupId
+                                );
                             }
 
-                            // Broadcast thông báo cho tất cả clients
-                            var notificationPacket = new Packet(PacketType.Message)
+                            // Broadcast File packet cho tất cả clients (để hiển thị download button)
+                            var filePacket = new Packet(PacketType.File)
                             {
-                                Sender = "HỆ THỐNG",
-                                Content = $"{Username} đã gửi file: {packet.FileName} ({FormatFileSize(packet.FileSize)})"
+                                Sender = Username,
+                                FileName = packet.FileName,
+                                FileSize = packet.FileSize,
+                                // FileData = null (không gửi dữ liệu file lại - chỉ metadata)
+                                GroupId = _currentGroupId
                             };
-                            await Program.BroadcastAsync(notificationPacket, this);
+                            await Program.BroadcastToGroupAsync(_currentGroupId, filePacket, this);
                         }
                         catch (Exception ex)
                         {
@@ -152,7 +164,13 @@ namespace ChatServer
                         Console.WriteLine($"[GROUP {_currentGroupId}] {Username}: {packet.Content}");
                         packet.Type = PacketType.Message; // Convert to regular message for display
                         packet.GroupId = _currentGroupId; // Ensure packet has correct GroupId
+
+                        // Không lưu tin nhắn vào database - chỉ hiển thị trực tiếp
+                        // DatabaseContext.SaveChatMessage(Username, packet.Content, _currentGroupId);
+
+                        // Lưu vào file history
                         ChatHistoryManager.SaveMessage(_currentGroupId, Username, packet.Content, "Message");
+
                         await Program.BroadcastToGroupAsync(_currentGroupId, packet, this);
                     }
                     break;
@@ -172,6 +190,38 @@ namespace ChatServer
                             GroupId = packet.GroupId
                         };
                         await Program.BroadcastToGroupAsync(packet.GroupId, msg);
+                    }
+                    break;
+
+                case PacketType.FileDownloadRequest:
+                    if (!string.IsNullOrEmpty(Username) && !string.IsNullOrEmpty(packet.FileName))
+                    {
+                        try
+                        {
+                            string uploadsDir = Path.Combine(AppContext.BaseDirectory, "Uploads");
+                            string filePath = Path.Combine(uploadsDir, packet.FileName);
+
+                            if (File.Exists(filePath))
+                            {
+                                byte[] fileData = File.ReadAllBytes(filePath);
+                                var downloadPacket = new Packet(PacketType.FileDownloadResponse)
+                                {
+                                    FileName = packet.FileName,
+                                    FileSize = fileData.Length,
+                                    FileData = fileData
+                                };
+                                await SendPacketAsync(downloadPacket);
+                                Console.WriteLine($"[FILE] Đã gửi file download: {packet.FileName}");
+                            }
+                            else
+                            {
+                                Console.WriteLine($"[ERROR] File không tồn tại: {filePath}");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[ERROR] Lỗi download file: {ex.Message}");
+                        }
                     }
                     break;
             }

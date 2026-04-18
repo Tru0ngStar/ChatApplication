@@ -3,6 +3,8 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using ChatShared;
+using Microsoft.EntityFrameworkCore;
+using ChatServer.Data;
 
 namespace ChatServer
 {
@@ -13,6 +15,7 @@ namespace ChatServer
         private static readonly Dictionary<int, List<ClientHandler>> _groups = new(); // Changed to int-based GroupId
         private static readonly object _clientLock = new();
         private static readonly object _groupLock = new(); // Added for thread-safe group operations
+        private static ChatDbContext? _dbContext;
         private const int Port = 9999;
 
         // Predefined groups: Group 1 (ID=0), Group 2 (ID=1), Group 3 (ID=2)
@@ -26,18 +29,25 @@ namespace ChatServer
         static async Task Main(string[] args)
         {
             Console.OutputEncoding = Encoding.UTF8;
-            DatabaseContext.Initialize();
+
+            // Setup DbContext
+            var options = new DbContextOptionsBuilder<ChatDbContext>()
+                .UseSqlServer("Server=localhost\\SQLEXPRESS;Database=ChatAppDb;Trusted_Connection=true;TrustServerCertificate=true;")
+                .Options;
+
+            _dbContext = new ChatDbContext(options);
+            DatabaseContext.Initialize(_dbContext);
             ChatHistoryManager.Initialize();
 
             _listener = new TcpListener(IPAddress.Any, Port);
             _listener.Start();
 
-            Console.WriteLine("[DB] Cơ sở dữ liệu tài khoản đã sẵn sàng.");
-            Console.WriteLine("[HISTORY] Lịch sử chat đã được tải.");
+            Console.WriteLine("[DB] 🗄️ Cơ sở dữ liệu SQL Server đã kết nối thành công!");
+            Console.WriteLine("[HISTORY] 📝 Lịch sử chat đã được tải.");
             Console.WriteLine("======================================");
-            Console.WriteLine($" SERVER CHAT ĐÃ KHỞI ĐỘNG");
-            Console.WriteLine($" Cổng: {Port}");
-            Console.WriteLine($" Thời gian: {DateTime.Now}");
+            Console.WriteLine($" 🚀 SERVER CHAT ĐÃ KHỞI ĐỘNG");
+            Console.WriteLine($" 📍 Cổng: {Port}");
+            Console.WriteLine($" ⏰ Thời gian: {DateTime.Now}");
             Console.WriteLine("======================================");
 
             try

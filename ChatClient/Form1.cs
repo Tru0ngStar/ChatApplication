@@ -12,6 +12,9 @@ namespace ChatClient
         private string? _currentUsername;
         private int _currentGroupId = -1; // Changed from string to int (-1 means not in a group)
         private List<ChatShared.FileInfo>? _currentFileList;
+        private List<string> _pendingDownloads = new(); // Track available files to download
+        private Dictionary<string, (string FileName, long FileSize)> _chatFileMap = new(); // Map display text to file info
+        private string _tempImageFolder = Path.Combine(AppContext.BaseDirectory, "TempImages");
         private readonly Dictionary<int, string> _groupNames = new() // Map GroupId to display name
         {
             { 0, "Group 1" },
@@ -111,11 +114,38 @@ namespace ChatClient
                     break;
 
                 case PacketType.File:
-                    AppendSystemMessage($"📁 {p.Sender} gửi file: {p.FileName} ({FormatFileSize(p.FileSize)})", Color.Purple);
+                    // Kiểm tra xem có phải ảnh không
+                    string[] imageExtensions = { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp" };
+                    string fileExtension = Path.GetExtension(p.FileName ?? "").ToLower();
+                    bool isImage = imageExtensions.Contains(fileExtension);
+
+                    // SAVE FILE FIRST before displaying (so image file exists when we try to display it)
                     if (p.FileData != null && p.FileData.Length > 0)
                     {
                         SaveReceivedFile(p.FileName, p.FileData);
                     }
+
+                    if (isImage)
+                    {
+                        // Hiển thị ảnh trong chat
+                        AppendFileMessageWithButton($"📷 {p.Sender} gửi ảnh: {p.FileName}", p.FileName, p.FileSize, isImage);
+                    }
+                    else
+                    {
+                        // Hiển thị file với nút download
+                        AppendFileMessageWithButton($"📁 {p.Sender} gửi file: {p.FileName}", p.FileName, p.FileSize, false);
+                    }
+
+                    // Thêm file vào lstFileList để có thể download
+                    string displayText = $"{p.FileName} ({FormatFileSize(p.FileSize)})";
+                    if (!lstFileList.Items.Contains(displayText))
+                    {
+                        lstFileList.Items.Add(displayText);
+                        _chatFileMap[displayText] = (p.FileName, p.FileSize);
+                    }
+
+                    lstFileList.Visible = lstFileList.Items.Count > 0;
+                    btnDownloadFile.Visible = lstFileList.Items.Count > 0;
                     RefreshFileList();
                     break;
 
@@ -158,6 +188,82 @@ namespace ChatClient
             rtbChat.SelectionColor = color;
             rtbChat.AppendText(text);
             rtbChat.SelectionColor = rtbChat.ForeColor;
+        }
+
+        private void AppendFileMessageWithButton(string message, string fileName, long fileSize, bool isImage)
+        {
+            // Hiển thị tin nhắn file với link download
+            AppendSystemMessage($"{message} ({FormatFileSize(fileSize)})", isImage ? Color.DarkCyan : Color.Purple);
+
+            // Nếu là ảnh, hiển thị ảnh trong chat
+            if (isImage)
+            {
+                try
+                {
+                    string downloadFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+                    string imagePath = Path.Combine(downloadFolder, fileName);
+
+                    if (File.Exists(imagePath))
+                    {
+                        DisplayImageInChat(imagePath);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AppendSystemMessage($"❌ Lỗi hiển thị ảnh: {ex.Message}", Color.Red);
+                }
+            }
+
+            // Lưu thông tin file để có thể download sau
+            if (!_pendingDownloads.Contains(fileName))
+            {
+                _pendingDownloads.Add(fileName);
+            }
+        }
+
+        private void DisplayImageInChat(string imagePath)
+        {
+            try
+            {
+                if (!File.Exists(imagePath))
+                {
+                    AppendSystemMessage($"⚠️ Không tìm thấy file ảnh: {imagePath}", Color.Orange);
+                    return;
+                }
+
+                // Load image and resize for display
+                using (var image = Image.FromFile(imagePath))
+                {
+                    int maxWidth = 400;
+                    int maxHeight = 300;
+
+                    // Calculate scaling to fit within max dimensions
+                    float scale = Math.Min((float)maxWidth / image.Width, (float)maxHeight / image.Height);
+                    int displayWidth = (int)(image.Width * scale);
+                    int displayHeight = (int)(image.Height * scale);
+
+                    // Create resized copy
+                    var resizedImage = new Bitmap(displayWidth, displayHeight);
+                    using (var g = Graphics.FromImage(resizedImage))
+                    {
+                        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                        g.DrawImage(image, 0, 0, displayWidth, displayHeight);
+                    }
+
+                    // Insert image into RichTextBox using clipboard
+                    Clipboard.SetImage(resizedImage);
+                    rtbChat.Paste();
+
+                    // Add line break after image
+                    rtbChat.AppendText("\n");
+
+                    resizedImage.Dispose();
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendSystemMessage($"❌ Không thể hiển thị ảnh: {ex.Message}", Color.Red);
+            }
         }
 
         private string FormatFileSize(long bytes)
@@ -284,12 +390,24 @@ namespace ChatClient
                 return;
             }
 
+            // Try to get from chat files first (new system)
+            string selectedItem = lstFileList.Items[lstFileList.SelectedIndex]?.ToString();
+            if (!string.IsNullOrEmpty(selectedItem) && _chatFileMap.ContainsKey(selectedItem))
+            {
+                var (fileName, fileSize) = _chatFileMap[selectedItem];
+                var requestPacket = new Packet(PacketType.FileDownloadRequest) { FileName = fileName };
+                await SendPacket(requestPacket);
+                AppendSystemMessage($"📥 Đang tải file: {fileName}...", Color.Blue);
+                return;
+            }
+
+            // Fallback to old system (from server file list)
             if (_currentFileList == null || _currentFileList.Count == 0)
                 return;
 
             var selectedFile = _currentFileList[lstFileList.SelectedIndex];
-            var requestPacket = new Packet(PacketType.FileDownloadRequest) { FileId = selectedFile.Id };
-            await SendPacket(requestPacket);
+            var requestPacket2 = new Packet(PacketType.FileDownloadRequest) { FileId = selectedFile.Id };
+            await SendPacket(requestPacket2);
             AppendSystemMessage($"📥 Đang tải file: {selectedFile.FileName}...", Color.Blue);
         }
 
