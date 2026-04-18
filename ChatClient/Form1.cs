@@ -51,7 +51,7 @@ namespace ChatClient
             if (_client?.Connected == true) return true;
             try
             {
-                _client = new TcpClient("127.0.0.1", 9999);
+                _client = new TcpClient("14.225.205.125", 9999);
                 _stream = _client.GetStream();
                 _ = Task.Run(Receive);
                 return true;

@@ -76,7 +76,43 @@ namespace ChatServer
                     if (!string.IsNullOrEmpty(Username))
                     {
                         Console.WriteLine($"[FILE] {Username} gửi file: {packet.FileName} ({packet.FileSize} bytes)");
-                        await Program.BroadcastAsync(packet, this);
+
+                        // Lưu file vào disk
+                        try
+                        {
+                            string uploadsDir = Path.Combine(AppContext.BaseDirectory, "Uploads");
+                            Directory.CreateDirectory(uploadsDir);
+
+                            string filePath = Path.Combine(uploadsDir, packet.FileName ?? "unnamed_file");
+
+                            // Tránh ghi đè file
+                            int counter = 1;
+                            string baseFileName = Path.GetFileNameWithoutExtension(filePath);
+                            string extension = Path.GetExtension(filePath);
+                            while (File.Exists(filePath))
+                            {
+                                filePath = Path.Combine(uploadsDir, $"{baseFileName}_{counter}{extension}");
+                                counter++;
+                            }
+
+                            if (packet.FileData != null && packet.FileData.Length > 0)
+                            {
+                                File.WriteAllBytes(filePath, packet.FileData);
+                                Console.WriteLine($"[FILE] Đã lưu file: {filePath}");
+                            }
+
+                            // Broadcast thông báo cho tất cả clients
+                            var notificationPacket = new Packet(PacketType.Message)
+                            {
+                                Sender = "HỆ THỐNG",
+                                Content = $"{Username} đã gửi file: {packet.FileName} ({FormatFileSize(packet.FileSize)})"
+                            };
+                            await Program.BroadcastAsync(notificationPacket, this);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[ERROR] Lỗi lưu file: {ex.Message}");
+                        }
                     }
                     break;
 
@@ -143,6 +179,19 @@ namespace ChatServer
 
         public async Task SendAsync(byte[] data) => await _stream.WriteAsync(data, 0, data.Length);
         private async Task SendPacketAsync(Packet p) => await SendAsync(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(p)));
+
+        private string FormatFileSize(long bytes)
+        {
+            string[] sizes = { "B", "KB", "MB", "GB" };
+            double len = bytes;
+            int order = 0;
+            while (len >= 1024 && order < sizes.Length - 1)
+            {
+                order++;
+                len = len / 1024;
+            }
+            return $"{len:0.##} {sizes[order]}";
+        }
 
         public void Disconnect()
         {
